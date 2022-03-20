@@ -16,15 +16,11 @@ class BlocksPredicate(Enum):
 
 class Problem:
     domain: str
-    domainFile: str
-    problemFile: str
     domainProblem: DomainProblem
 
     def __init__(self, domain: str, domainFile: str, problemFile: str) -> None:
         self.domain = domain
-        self.domainFile = domainFile
-        self.problemFile = problemFile
-        self.domainProblem = DomainProblem(self.domainFile, self.problemFile)
+        self.domainProblem = DomainProblem(domainFile, problemFile)
 
     def isSatelliteDomain(self) -> bool:
         return self.domain.lower() == "satellite"
