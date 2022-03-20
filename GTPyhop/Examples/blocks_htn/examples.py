@@ -16,8 +16,8 @@ import test_harness as th  # code for use in paging and debugging
 # instead use the name of the package.
 the_domain = gtpyhop.Domain(__package__)
 
-from methods import *
-from actions import *
+from blocks_htn.methods import *
+from blocks_htn.actions import *
 
 print("-----------------------------------------------------------------------")
 print(f"Created '{gtpyhop.current_domain}'. To run the examples, type this:")
