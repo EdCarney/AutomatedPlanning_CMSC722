@@ -37,6 +37,7 @@ def runPlanner(problem: Problem) -> None:
     initializeForDomain(problem)
     state_0 = generateInitialState(problem)
     state_g = generateGoalState(problem)
+    gtpyhop.find_plan(state_0, [("achieve", state_g)])
 
 
 def initializeForDomain(problem: Problem) -> None:
@@ -54,39 +55,40 @@ def initializeForDomain(problem: Problem) -> None:
         gtpyhop.declare_task_methods("put", methods.m_put)
 
 
-def generateGoalState(problem: Problem) -> gtpyhop.State:
+def generateGoalState(problem: Problem) -> gtpyhop.Multigoal:
     goalAtoms = problem.domainProblem.goals()
-    stateName = "state_g"
-    return generateState(problem, goalAtoms, stateName)
+    state = gtpyhop.Multigoal("state_g")
+    return generateState(problem, goalAtoms, state)
 
 
 def generateInitialState(problem: Problem) -> gtpyhop.State:
     initialAtoms = problem.domainProblem.initialstate()
-    stateName = "state_0"
-    return generateState(problem, initialAtoms, stateName)
+    state = gtpyhop.State("state_0")
+    return generateState(problem, initialAtoms, state)
 
 
 def generateState(
-    problem: Problem, atoms: (set[Atom] | list[Atom]), stateName: str
-) -> gtpyhop.State:
+    problem: Problem,
+    atoms: (set[Atom] | list[Atom]),
+    state: (gtpyhop.State | gtpyhop.Multigoal),
+) -> (gtpyhop.State | gtpyhop.Multigoal):
     if problem.isSatelliteDomain():
-        return generateSatelliteState(atoms, stateName)
+        return generateSatelliteState(atoms, state)
     elif problem.isBlocksDomain():
-        return generateBlocksState(atoms, stateName)
+        return generateBlocksState(atoms, state)
 
     return
 
 
 def generateSatelliteState(
-    atoms: (set[Atom] | list[Atom]), stateName: str
+    atoms: (set[Atom] | list[Atom]), state: (gtpyhop.State | gtpyhop.Multigoal)
 ) -> gtpyhop.State:
     return
 
 
 def generateBlocksState(
-    atoms: (set[Atom] | list[Atom]), stateName: str
-) -> gtpyhop.State:
-    state = gtpyhop.State(stateName)
+    atoms: (set[Atom] | list[Atom]), state: (gtpyhop.State | gtpyhop.Multigoal)
+) -> (gtpyhop.State | gtpyhop.Multigoal):
     state.pos = {}
     state.clear = {}
     state.holding = {}
@@ -104,6 +106,7 @@ def generateBlocksState(
             state.pos[predicate[1]] = "table"
 
     state.display()
+    return state
 
 
 def main():
