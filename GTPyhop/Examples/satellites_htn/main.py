@@ -16,6 +16,7 @@ state0.power_avail = {}
 state0.fuel = {}
 state0.fuel_used = 0
 state0.data_capacity = {}
+state0.data = {}
 state0.data_stored = 0
 state0.have_image = {}
 state0.pointing = {}
