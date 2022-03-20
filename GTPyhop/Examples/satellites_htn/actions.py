@@ -1,13 +1,13 @@
-def fuel_required(dir_new, dir_old) -> int:
-    return
+def fuel_required(state, dir_new, dir_old) -> int:
+    return state.slew_time[(dir_old, dir_new)]
 
 
-def data_required(dir, mode) -> int:
-    return
+def data_required(state, dir, mode) -> int:
+    return state.data[(dir, mode)]
 
 
 def turn_to(state, sat, dir_new, dir_old):
-    req_fuel = fuel_required(dir_new, dir_old)
+    req_fuel = fuel_required(state, dir_new, dir_old)
     if not (
         state.pointing[sat] == dir_old
         and dir_new != dir_old
@@ -50,7 +50,7 @@ def calibrate(state, sat, int, dir):
 
 
 def take_image(state, sat, dir, int, mode):
-    req_data = data_required(dir, mode)
+    req_data = data_required(state, dir, mode)
 
     if not (
         state.calibrated[int]
