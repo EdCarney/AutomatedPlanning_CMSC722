@@ -8,6 +8,27 @@ def getFuelCost(state, cur_dir: str, req_dir: str) -> float:
     return state.slew_time.get((cur_dir, req_dir), 0)
 
 
+def instrumentReadyToCollect(state, ins) -> bool:
+    return state.calibrated.get(ins) and state.power_on.get(ins)
+
+
+def satHasResources(state, sat, dir, mode) -> bool:
+    return satHasSufficientFuel(state, sat, dir) and satHasSufficientData(
+        state, sat, dir, mode
+    )
+
+
+def satHasSufficientFuel(state, sat, target_dir) -> bool:
+    cur_dir = state.pointing[sat]
+    fuel_cost = getFuelCost(state, cur_dir, target_dir)
+    return state.fuel[sat] >= fuel_cost or cur_dir == target_dir
+
+
+def satHasSufficientData(state, sat, dir, mode):
+    req_data = state.data[(dir, mode)]
+    return state.data_capacity[sat] >= req_data
+
+
 def getInstrumentsSupportingMode(state, mode: str) -> set[str]:
     return [ins for ins in state.supports if state.supports[ins] == mode]
 
@@ -16,28 +37,47 @@ def getSatsSupportingInstruments(state, supporting_instruments: set[str]) -> set
     return {state.on_board[x] for x in supporting_instruments}
 
 
-def sortSatsByFuelCost(state, supporting_sats: set[str], dir: str) -> list[str]:
-    sat_costs = {
-        sat: getFuelCost(state, state.pointing[sat], dir)
-        for sat in state.pointing
-        if sat in supporting_sats
-    }
-    return [sat for (sat, cost) in sorted(sat_costs.items(), key=lambda x: x[1])]
+def getActiveInstrumentForSat(state, sat) -> list[str]:
+    active_int = [int for int in state.power_on if state.on_board[int] == sat]
+    return active_int[0] if any(active_int) else None
 
 
-def getStatus(state, sat, dir, ins):
-    cur_dir = state.pointing[sat]
+def getStatus(state, sat, dir, ins, mode):
     cal_dir = state.cal_target[ins]
-    req_target_fuel = getFuelCost(state, cur_dir, dir)
-    req_cal_fuel = getFuelCost(state, cur_dir, cal_dir)
-    if state.calibrated.get(ins) and (
-        state.fuel[sat] >= req_target_fuel or cur_dir == dir
-    ):
+
+    if instrumentReadyToCollect(state, ins) and satHasResources(state, sat, dir, mode):
         return "collect-target"
-    elif state.fuel[sat] >= req_cal_fuel or cur_dir == cal_dir:
+    elif satHasResources(state, sat, dir, mode):
         return "calibrate-instrument"
     else:
-        return "insufficient-fuel"
+        return "insufficient-resources"
+
+
+def sortSatInsByCost(state, sats: set[str], ints: set[str], dir: str) -> list[tuple]:
+    """
+    Returns a sorted list of satellite-instrument pairs to point to the provided direction.
+    The list is sorted in ascending order by the total fuel cost. If an instrument is
+    calibrated and powered on, the cost is the fuel to slew to the desired direction.
+    Otherwise, the cost is the fuel to slew from the current direction to the calibration
+    target plus the fuel to slew from the calibration target to the desired direction.
+    """
+
+    costs = {}
+
+    for sat in sats:
+        cur_dir = state.pointing[sat]
+        sat_ints = [int for int in ints if state.on_board[int] == sat]
+        for sat_int in sat_ints:
+            if state.calibrated.get(sat_int) and state.power_on.get(sat_int):
+                cost = getFuelCost(state, cur_dir, dir)
+            else:
+                cal_dir = state.cal_target[sat_int]
+                cost = getFuelCost(state, cur_dir, cal_dir) + getFuelCost(
+                    state, cal_dir, dir
+                )
+            costs[(sat, sat_int)] = cost
+
+    return [sat for (sat, _) in sorted(costs.items(), key=lambda x: x[1])]
 
 
 ################################################################################
@@ -57,16 +97,12 @@ def m_collect_all(state, goal):
 
         supporting_ins = getInstrumentsSupportingMode(state, mode)
         supporting_sats = getSatsSupportingInstruments(state, supporting_ins)
-        sats_cost_sorted = sortSatsByFuelCost(state, supporting_sats, dir)
+        sat_ins_cost_sorted = sortSatInsByCost(
+            state, supporting_sats, supporting_ins, dir
+        )
 
-        for sat in sats_cost_sorted:
-            sat_ins = [ins for ins in supporting_ins if state.on_board[ins] == sat]
-            sat_calibrated_ins = [ins for ins in sat_ins if state.calibrated.get(ins)]
-
-            # prefer to use calibrated instruments when possible to conserve fuel
-            ins = sat_calibrated_ins[0] if any(sat_calibrated_ins) else sat_ins[0]
-
-            status = getStatus(state, sat, dir, ins)
+        for (sat, ins) in sat_ins_cost_sorted:
+            status = getStatus(state, sat, dir, ins, mode)
 
             if status == "collect-target":
                 return [
@@ -100,7 +136,7 @@ def m_collect_2(state, sat, dir, ins, mode) -> list[tuple] | bool:
     target.
     """
     cur_dir = state.pointing[sat]
-    if state.calibrated.get(ins) and cur_dir != dir:
+    if cur_dir != dir:
         return [("turn_to", sat, cur_dir, dir), ("collect", sat, dir, ins, mode)]
 
     return False
@@ -109,11 +145,7 @@ def m_collect_2(state, sat, dir, ins, mode) -> list[tuple] | bool:
 def m_collect_3(state, sat, dir, ins, mode) -> list[tuple] | bool:
     cur_dir = state.pointing[sat]
     if state.calibrated.get(ins) and cur_dir == dir:
-        return [
-            ("switch_on", ins, sat),
-            ("take_image", sat, dir, ins, mode),
-            ("switch_off", ins, sat),
-        ]
+        return [("take_image", sat, dir, ins, mode)]
 
     return False
 
@@ -133,17 +165,22 @@ def m_calibrate_instrument_1(state, sat, ins) -> list[tuple] | bool:
 
 def m_calibrate_instrument_2(state, sat, ins) -> list[tuple] | bool:
     """
+    Calibrate instrument when satellite does not have power available.
+    """
+    if not state.power_avail[sat]:
+        active_ins = getActiveInstrumentForSat(state, sat)
+        return [("switch_off", active_ins, sat), ("calibrate_instrument", sat, ins)]
+
+
+def m_calibrate_instrument_3(state, sat, ins) -> list[tuple] | bool:
+    """
     Calibrate instrument when satellite is pointed towards calibration
-    target.
+    target and the satellite has available power.
     """
     cal_dir = state.cal_target[ins]
     cur_dir = state.pointing[sat]
-    if cur_dir == cal_dir:
-        return [
-            ("switch_on", ins, sat),
-            ("calibrate", sat, ins, cal_dir),
-            ("switch_off", ins, sat),
-        ]
+    if cur_dir == cal_dir and state.power_avail[sat]:
+        return [("switch_on", ins, sat), ("calibrate", sat, ins, cal_dir)]
 
     return False
 
@@ -151,5 +188,8 @@ def m_calibrate_instrument_2(state, sat, ins) -> list[tuple] | bool:
 gtpyhop.declare_task_methods("achieve", m_collect_all)
 gtpyhop.declare_task_methods("collect", m_collect_1, m_collect_2, m_collect_3)
 gtpyhop.declare_task_methods(
-    "calibrate_instrument", m_calibrate_instrument_1, m_calibrate_instrument_2
+    "calibrate_instrument",
+    m_calibrate_instrument_1,
+    m_calibrate_instrument_2,
+    m_calibrate_instrument_3,
 )

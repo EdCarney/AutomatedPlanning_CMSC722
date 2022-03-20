@@ -29,7 +29,7 @@ def switch_on(state, int, sat):
         return
 
     state.power_on[int] = True
-    # state.calibrated[int] = False
+    state.calibrated[int] = False
     state.power_avail[sat] = False
     return state
 
