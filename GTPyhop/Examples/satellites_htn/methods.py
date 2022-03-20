@@ -1,5 +1,11 @@
+import gtpyhop
+
 ################################################################################
 # Helper functions that are used in the methods' preconditions.
+
+
+def getFuelCost(state, cur_dir: str, req_dir: str) -> float:
+    return state.slew_time.get((cur_dir, req_dir), 0)
 
 
 def getInstrumentsSupportingMode(state, mode: str) -> set[str]:
@@ -10,10 +16,10 @@ def getSatsSupportingInstruments(state, supporting_instruments: set[str]) -> set
     return {state.on_board[x] for x in supporting_instruments}
 
 
-def sortSatsByFuelCost(state, supporting_sats: set[str]) -> list[str]:
+def sortSatsByFuelCost(state, supporting_sats: set[str], dir: str) -> list[str]:
     sat_costs = {
-        sat: state.slew_time[(current_dir, dir)]
-        for (sat, current_dir) in state.pointing
+        sat: getFuelCost(state, state.pointing[sat], dir)
+        for sat in state.pointing
         if sat in supporting_sats
     }
     return [sat for (sat, cost) in sorted(sat_costs.items(), key=lambda x: x[1])]
@@ -22,8 +28,8 @@ def sortSatsByFuelCost(state, supporting_sats: set[str]) -> list[str]:
 def getStatus(state, sat, dir, ins):
     cur_dir = state.pointing[sat]
     cal_dir = state.cal_target[ins]
-    req_target_fuel = state.slew_time[(cur_dir, dir)]
-    req_cal_fuel = state.slew_time[(cur_dir, cal_dir)]
+    req_target_fuel = getFuelCost(state, cur_dir, dir)
+    req_cal_fuel = getFuelCost(state, cur_dir, cal_dir)
     if state.calibrated.get(ins) and (
         state.fuel[sat] >= req_target_fuel or cur_dir == dir
     ):
@@ -51,7 +57,7 @@ def m_collect_all(state, goal):
 
         supporting_ins = getInstrumentsSupportingMode(state, mode)
         supporting_sats = getSatsSupportingInstruments(state, supporting_ins)
-        sats_cost_sorted = sortSatsByFuelCost(state, supporting_sats)
+        sats_cost_sorted = sortSatsByFuelCost(state, supporting_sats, dir)
 
         for sat in sats_cost_sorted:
             sat_ins = [ins for ins in supporting_ins if state.on_board[ins] == sat]
@@ -140,3 +146,10 @@ def m_calibrate_instrument_2(state, sat, ins) -> list[tuple] | bool:
         ]
 
     return False
+
+
+gtpyhop.declare_task_methods("achieve", m_collect_all)
+gtpyhop.declare_task_methods("collect", m_collect_1, m_collect_2, m_collect_3)
+gtpyhop.declare_task_methods(
+    "calibrate_instrument", m_calibrate_instrument_1, m_calibrate_instrument_2
+)
