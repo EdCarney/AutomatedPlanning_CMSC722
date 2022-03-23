@@ -1,5 +1,3 @@
-import gtpyhop
-
 ################################################################################
 # Helper functions that are used in the methods' preconditions.
 

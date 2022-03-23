@@ -1,6 +1,3 @@
-import gtpyhop
-
-
 def fuel_required(state, dir_new, dir_old) -> int:
     return state.slew_time[(dir_old, dir_new)]
 
