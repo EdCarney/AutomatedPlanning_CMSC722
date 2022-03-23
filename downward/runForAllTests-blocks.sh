@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 
+runTests=0
+
+while getopts r flag
+do
+    case "${flag}" in
+        r) runTests=1;;
+    esac
+done
+
 # GENERATE
 
 numBlocks=( 5 10 15 20 25 30 35 40 45 50 55 60 65 70 )
@@ -33,11 +42,14 @@ echo "Files translated"
 
 # RUN PLANNER
 
-benchmarks=($(ls $BENCHMARKS/blocks-world/test.*.pddl))
-echo "Running planner..."
-for i in "${benchmarks[@]}"
-do
-	echo "Running for $i target case..."
-	./fast-downward.py $BENCHMARKS/blocks-world/domain.pddl $i --evaluator "hff=ff()" --search "lazy_greedy([hff], preferred=[hff])" | grep "Total time:"
-done
-echo "Planner run completed"
+if [ $runTests -eq 1 ]
+then
+	benchmarks=($(ls $BENCHMARKS/blocks-world/test.*.pddl))
+	echo "Running planner..."
+	for i in "${benchmarks[@]}"
+	do
+		echo "Running for $i target case..."
+		./fast-downward.py $BENCHMARKS/blocks-world/domain.pddl $i --evaluator "hff=ff()" --search "lazy_greedy([hff], preferred=[hff])" | grep "Total time:"
+	done
+	echo "Planner run completed"
+fi
