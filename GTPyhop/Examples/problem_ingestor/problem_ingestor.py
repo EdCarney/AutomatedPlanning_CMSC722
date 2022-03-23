@@ -40,17 +40,63 @@ class SatelliteFunctions(Enum):
 
 class Problem:
     domain: str
-    domainProblem: DomainProblem
+    goalAtoms: set[Atom] | list[Atom]
+    initialAtoms: set[Atom] | list[Atom]
+
+    __INIT_START: str = "(:init"
+    __INIT_END: str = ")"
+    __GOAL_START: str = "(:goal (and"
+    __GOAL_END: str = "))"
 
     def __init__(self, domain: str, domainFile: str, problemFile: str) -> None:
         self.domain = domain
-        self.domainProblem = DomainProblem(domainFile, problemFile)
+        if self.isBlocksDomain():
+            domainProblem = DomainProblem(domainFile, problemFile)
+            self.goalAtoms = domainProblem.goals()
+            self.initialAtoms = domainProblem.initialstate()
+        elif self.isSatelliteDomain():
+            self.goalAtoms = self.__generateGoalSatAtoms(problemFile)
+            self.initialAtoms = self.__generateInitialSatAtoms(problemFile)
 
     def isSatelliteDomain(self) -> bool:
         return self.domain.lower() == "satellite"
 
     def isBlocksDomain(self) -> bool:
         return self.domain.lower() == "blocks"
+
+    def __generateGoalSatAtoms(self, problemFile: str) -> list[Atom]:
+        with open(problemFile) as f:
+            lines = f.readlines()
+
+        return self.__extractPredicates(lines, self.__GOAL_START, self.__GOAL_END)
+
+    def __generateInitialSatAtoms(self, problemFile: str) -> list[Atom]:
+        with open(problemFile) as f:
+            lines = f.readlines()
+
+        return self.__extractPredicates(lines, self.__INIT_START, self.__INIT_END)
+
+    def __extractPredicates(self, lines: list[str], start: str, end: str) -> list[Atom]:
+        atoms = []
+        index = 0
+        while lines[index].strip() != start:
+            index += 1
+
+        index += 1
+
+        while lines[index].strip() != end:
+            line = lines[index]
+            predicate = (
+                line.replace("(", "")
+                .replace(")", "")
+                .replace("=", "")
+                .strip()
+                .split(" ")
+            )
+            atoms.append(Atom(predicate))
+            index += 1
+
+        return atoms
 
 
 def runPlanner(problem: Problem) -> None:
@@ -99,15 +145,13 @@ def initializeForDomain(problem: Problem) -> None:
 
 
 def generateGoalState(problem: Problem) -> gtpyhop.Multigoal:
-    goalAtoms = problem.domainProblem.goals()
     state = gtpyhop.Multigoal("state_g")
-    return generateState(problem, goalAtoms, state)
+    return generateState(problem, problem.goalAtoms, state)
 
 
 def generateInitialState(problem: Problem) -> gtpyhop.State:
-    initialAtoms = problem.domainProblem.initialstate()
     state = gtpyhop.State("state_0")
-    return generateState(problem, initialAtoms, state)
+    return generateState(problem, problem.initialAtoms, state)
 
 
 def generateState(
@@ -157,7 +201,7 @@ def generateSatelliteState(
         elif predName == SatellitePredicate.DIRECTION.value:
             state.direction[predicate[1]] = True
         elif predName == SatellitePredicate.HAVE_IMAGE.value:
-            state.have_image[(predicate[1], predicate[2])] = True
+            state.have_image[predicate[1]] = predicate[2]
         elif predName == SatellitePredicate.INSTRUMENT.value:
             state.instrument[predicate[1]] = True
         elif predName == SatellitePredicate.MODE.value:
@@ -171,23 +215,26 @@ def generateSatelliteState(
         elif predName == SatellitePredicate.POWER_ON.value:
             state.power_on[predicate[1]] = True
         elif predName == SatellitePredicate.SATELLITE.value:
-            state.satllite[predicate[1]] = True
+            state.satellite[predicate[1]] = True
         elif predName == SatellitePredicate.SUPPORTS.value:
             state.supports[predicate[1]] = predicate[2]
 
         # check for functions
         elif predName == SatelliteFunctions.DATA.value:
-            state.data[(predicate[1], predicate[2])] = predicate[3]
+            state.data[(predicate[1], predicate[2])] = float(predicate[3])
         elif predName == SatelliteFunctions.DATA_CAPACITY.value:
-            state.data_capacity[predicate[1]] = predicate[2]
+            state.data_capacity[predicate[1]] = float(predicate[2])
         elif predName == SatelliteFunctions.DATA_STORED.value:
-            state.data_stored = predicate[1]
+            state.data_stored = float(predicate[1])
         elif predName == SatelliteFunctions.FUEL.value:
-            state.fuel[predicate[1]] == predicate[2]
+            state.fuel[predicate[1]] = float(predicate[2])
         elif predName == SatelliteFunctions.FUEL_USED.value:
-            state.fuel_used = predicate[1]
+            state.fuel_used = float(predicate[1])
         elif predName == SatelliteFunctions.SLEW_TIME.value:
-            state.slew_time[(predicate[1], predicate[2])] = predicate[3]
+            state.slew_time[(predicate[1], predicate[2])] = float(predicate[3])
+
+    state.display()
+    return state
 
 
 def generateBlocksState(
