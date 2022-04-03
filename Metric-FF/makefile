@@ -6,12 +6,13 @@
 
 ####### FLAGS
 
-TYPE	= 
-ADDONS	= 
+TYPE		 = 
+CC_ADDONS	 = -Wno-endif-labels -Wno-implicit-function-declaration -Wno-format-overflow -Wno-unused-function -Wno-int-in-bool-context
+BISON_ADDONS = -Wno-other -Wno-conflicts-sr
 
 CC      = gcc
 
-CFLAGS	= -O6 -Wall -g -ansi $(TYPE) $(ADDONS) 
+CFLAGS	= -O6 -Wall -g -ansi $(TYPE) $(CC_ADDONS) 
 # -g -pg
 
 LIBS    = -lm
@@ -59,10 +60,10 @@ ff: $(OBJECTS) $(PDDL_PARSER_OBJ)
 
 # pddl syntax
 scan-fct_pddl.tab.c: scan-fct_pddl.y lex.fct_pddl.c
-	bison -pfct_pddl -bscan-fct_pddl scan-fct_pddl.y
+	bison -pfct_pddl -bscan-fct_pddl scan-fct_pddl.y $(BISON_ADDONS)
 
 scan-ops_pddl.tab.c: scan-ops_pddl.y lex.ops_pddl.c
-	bison -pops_pddl -bscan-ops_pddl scan-ops_pddl.y
+	bison -pops_pddl -bscan-ops_pddl scan-ops_pddl.y $(BISON_ADDONS)
 
 lex.fct_pddl.c: lex-fct_pddl.l
 	flex -Pfct_pddl lex-fct_pddl.l
