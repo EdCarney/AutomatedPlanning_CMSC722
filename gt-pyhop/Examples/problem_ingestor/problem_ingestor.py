@@ -1,7 +1,7 @@
-#! /usr/bin/env python3
+#! /usr/bin/env python3.10
 
 from enum import Enum
-from ... import gtpyhop
+import gtpyhop
 from pddlpy import DomainProblem
 from pddlpy.pddl import Atom
 import sys
@@ -110,8 +110,8 @@ def initializeForDomain(problem: Problem) -> None:
     gtpyhop.current_domain = gtpyhop.Domain(problem.domain)
 
     if problem.isBlocksDomain():
-        from Examples.problem_ingestor.blocks_htn import actions
-        from Examples.problem_ingestor.blocks_htn import methods
+        from blocks_htn import actions
+        from blocks_htn import methods
 
         gtpyhop.declare_actions(
             actions.pickup, actions.unstack, actions.putdown, actions.stack
@@ -121,8 +121,8 @@ def initializeForDomain(problem: Problem) -> None:
         gtpyhop.declare_task_methods("put", methods.m_put)
 
     elif problem.isSatelliteDomain():
-        from Examples.problem_ingestor.satellites_htn import actions
-        from Examples.problem_ingestor.satellites_htn import methods
+        from satellites_htn import actions
+        from satellites_htn import methods
 
         gtpyhop.declare_actions(
             actions.turn_to,
