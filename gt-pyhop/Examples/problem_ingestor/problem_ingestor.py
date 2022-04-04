@@ -103,7 +103,7 @@ def runPlanner(problem: Problem) -> None:
     initializeForDomain(problem)
     state_0 = generateInitialState(problem)
     state_g = generateGoalState(problem)
-    gtpyhop.find_plan(state_0, [("achieve", state_g)])
+    return gtpyhop.find_plan(state_0, [("achieve", state_g)])
 
 
 def initializeForDomain(problem: Problem) -> None:
@@ -270,7 +270,11 @@ def main():
     problemFile = sys.argv[3]
     problem = Problem(domain, domainFile, problemFile)
 
-    runPlanner(problem)
+    result = runPlanner(problem)
+    if result:
+        print("INFO: plan found")
+    else:
+        print("INFO: plan not found")
 
 
 if __name__ == "__main__":
