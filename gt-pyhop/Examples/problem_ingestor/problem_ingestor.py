@@ -6,6 +6,8 @@ from pddlpy import DomainProblem
 from pddlpy.pddl import Atom
 import sys
 
+verbosity = 0
+
 
 class BlocksPredicate(Enum):
     ON = "on"
@@ -233,7 +235,8 @@ def generateSatelliteState(
         elif predName == SatelliteFunctions.SLEW_TIME.value:
             state.slew_time[(predicate[1], predicate[2])] = float(predicate[3])
 
-    state.display()
+    if verbosity > 0:
+        state.display()
     return state
 
 
@@ -256,7 +259,8 @@ def generateBlocksState(
         elif predName == BlocksPredicate.ONTABLE.value:
             state.pos[predicate[1]] = "table"
 
-    state.display()
+    if verbosity > 0:
+        state.display()
     return state
 
 
