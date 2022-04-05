@@ -1,6 +1,7 @@
 #! /usr/bin/env python3.10
 
-import subprocess, os
+import subprocess, os, re
+from enum import Enum
 from astropy.time import Time
 from datetime import datetime
 
@@ -9,21 +10,81 @@ BENCHMARKS_DIR = os.environ["BENCHMARKS_DIR"]
 HTN_PLAN_FOUND = "INFO: plan found"
 
 
+class PlanType(Enum):
+    HTN = "htn"
+    DOM_IND = "domain_independent"
+
+
 class PlanData:
+    type: PlanType
     problemSize: int
     runTime: float
     numSteps: int
     numNodesExpanded: int
+    data: str
+
+    def display(self) -> None:
+        print("----- Plan Details -----")
+        print(f"Plan Type: {self.type}")
+        print(f"Problem Size: {self.problemSize}")
+        print(f"Run Time: {self.runTime}")
+        print(f"Num Steps: {self.numSteps}")
+        print(f"Num Nodes Expanded: {self.numNodesExpanded}")
 
 
 class HtnPlanData(PlanData):
-    def __init__(self, data: str) -> None:
-        return
+    def __init__(self, data: str, probSize: int) -> None:
+        self.data = data
+        self.type = PlanType.HTN
+        self.problemSize = probSize
+        self.runTime = self.__extractRunTime()
+        self.numSteps = self.__extractNumSteps()
+        self.numNodesExpanded = self.__extractNumNodesExpanded()
+
+    def __extractRunTime(self):
+        runTimeRegex = "FP> runtime = (\d+.\d+)"
+        return re.findall(runTimeRegex, self.data, re.M)[-1]
+
+    def __extractNumSteps(self):
+        numStepsRegex = "FP> result = (\[\(.*\)\])"
+        result = re.findall(numStepsRegex, self.data, re.M)[-1]
+
+        # get ready for some hacky business
+        numLParens = result.count("(")
+        numRParens = result.count(")")
+        if numLParens == numRParens:
+            return numLParens
+        else:
+            print(
+                "ERROR: Number of parenthesis did not match when determining HTN plan length!"
+            )
+            exit()
+
+    def __extractNumNodesExpanded(self):
+        numStepsExpandedRegex = "depth (\d+) todo_list"
+        return re.findall(numStepsExpandedRegex, self.data, re.M)[-1]
 
 
 class DomainIndPlanData(PlanData):
-    def __init__(self, data: str) -> None:
-        return
+    def __init__(self, data: str, probSize: int) -> None:
+        self.data = data
+        self.type = PlanType.DOM_IND
+        self.problemSize = probSize
+        self.runTime = self.__extractRunTime()
+        self.numSteps = self.__extractNumSteps()
+        self.numNodesExpanded = self.__extractNumNodesExpanded()
+
+    def __extractRunTime(self):
+        runTimeRegex = "\s+(\d+.\d+) seconds total time"
+        return re.findall(runTimeRegex, self.data, re.M)[-1]
+
+    def __extractNumSteps(self):
+        numStepsRegex = "\s+(\d+):\s"
+        return re.findall(numStepsRegex, self.data, re.M)[-1]
+
+    def __extractNumNodesExpanded(self):
+        numStepsExpandedRegex = "evaluating (\d+) states"
+        return re.findall(numStepsExpandedRegex, self.data, re.M)[-1] + 1
 
 
 def getRandSeed() -> int:
@@ -103,7 +164,7 @@ def runDomIndPlanner(fileName: str) -> str:
 
 def main():
     numObsArr = [20, 25]
-    numProbsPerSize = 10
+    numProbsPerSize = 1
 
     for numObs in numObsArr:
         successCount = 0
@@ -115,7 +176,8 @@ def main():
                     f"WARN: Failed attempt {successCount + 1} for count {numObs}, retrying..."
                 )
             else:
-                print(result)
+                plan = HtnPlanData(result, numObs)
+                plan.display()
                 successCount += 1
 
 
