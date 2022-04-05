@@ -2,6 +2,7 @@
 
 import subprocess, os, re
 from enum import Enum
+from typing import Tuple
 from astropy.time import Time
 from datetime import datetime
 
@@ -25,7 +26,7 @@ class PlanData:
 
     def display(self) -> None:
         print("----- Plan Details -----")
-        print(f"Plan Type: {self.type}")
+        print(f"Plan Type: {self.type.value}")
         print(f"Problem Size: {self.problemSize}")
         print(f"Run Time: {self.runTime}")
         print(f"Num Steps: {self.numSteps}")
@@ -162,23 +163,45 @@ def runDomIndPlanner(fileName: str) -> str:
     return runCmdInDir(subProcessArr, PROJ_DIR + "/metric-ff")
 
 
-def main():
-    numObsArr = [20, 25]
-    numProbsPerSize = 1
+def generatePlanData(
+    probSizeArr: list[int], numProbsPerSize: int
+) -> Tuple[list[HtnPlanData], list[DomainIndPlanData]]:
+    htnPlans: list[HtnPlanData] = []
+    domIndPlans: list[DomainIndPlanData] = []
 
-    for numObs in numObsArr:
+    for probSize in probSizeArr:
         successCount = 0
         while successCount < numProbsPerSize:
-            fileName = generateProblemFile(numObs, successCount)
+            fileName = generateProblemFile(probSize, successCount)
             result = runHtnPlanner(fileName)
             if result.find(HTN_PLAN_FOUND) < 0:
                 print(
-                    f"WARN: Failed attempt {successCount + 1} for count {numObs}, retrying..."
+                    f"WARN: Failed attempt {successCount + 1} for count {probSize}, retrying..."
                 )
             else:
-                plan = HtnPlanData(result, numObs)
-                plan.display()
+                htnPlan = HtnPlanData(result, probSize)
+                htnPlans.append(htnPlan)
                 successCount += 1
+
+    return htnPlans, domIndPlans
+
+
+def writePlansToFile(plans: list[PlanData]) -> None:
+    timestamp = str(datetime.utcnow().timestamp()).replace(".", "")
+    fileName = f"plan_data_{timestamp}.csv"
+    with open(fileName, "w") as f:
+        f.write("Plan Type,Problem Size,Run Time (s),Num Steps,Expanded Nodes\n")
+        for plan in plans:
+            f.write(
+                f"{plan.type.value},{plan.problemSize},{plan.runTime},{plan.numSteps},{plan.numNodesExpanded}\n"
+            )
+
+
+def main():
+    numObsArr = [5, 10, 15, 20, 25, 30]
+    numProbsPerSize = 10
+    htnPlans, domIndPlans = generatePlanData(numObsArr, numProbsPerSize)
+    writePlansToFile(htnPlans)
 
 
 if __name__ == "__main__":
