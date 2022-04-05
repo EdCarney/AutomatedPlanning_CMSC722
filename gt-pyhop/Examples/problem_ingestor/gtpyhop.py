@@ -17,12 +17,12 @@ of the modules in the Examples directory.
 # from IPython import embed
 # from IPython.terminal.debugger import set_trace
 
-import copy, sys, pprint, re
+import copy, re, time
 
 ################################################################################
 # How much information to print while the program is running
 
-verbose = 0
+verbose = 1
 """
 verbose is a global value whose initial value is 1. Its value determines how
 much debugging information GTPyhop will print:
@@ -835,13 +835,16 @@ def find_plan(state, todo_list):
      - 'state' is a state;
      - 'todo_list' is a list of goals, tasks, and actions.
     """
-    if verbose >= 1:
+    if verbose >= 2:
         todo_string = "[" + ", ".join([_item_to_string(x) for x in todo_list]) + "]"
         print(f"FP> find_plan, verbose={verbose}:")
         print(f"    state = {state.__name__}\n    todo_list = {todo_string}")
+    start = time.time()
     result = seek_plan(state, todo_list, [], 0)
+    end = time.time()
     if verbose >= 1:
-        print("FP> result =", result, "\n")
+        print("FP> runtime =", end - start)
+        print("FP> result =", result)
     return result
 
 
@@ -999,11 +1002,3 @@ def _apply_command_and_continue(state, command, args):
         if verbose >= 3:
             print("not applicable")
         return False
-
-
-###############################################################################
-# Print brief information about how to interpret the program's output
-
-print(f"\nImported GTPyhop version 1.0.")
-print(f"Messages from find_plan will be prefaced with 'FP>'.")
-print(f"Messages from run_lazy_lookahead will be prefaced with 'RLL>'.")
