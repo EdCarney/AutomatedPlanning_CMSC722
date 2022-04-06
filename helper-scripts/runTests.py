@@ -268,19 +268,19 @@ def generatePlanData(
     while not success:
         fileName = generateProblemFile(probSize, domain, successCount)
         htnResult = runHtnPlanner(fileName, domain)
-        # domIndResult = runDomIndPlanner(fileName, domain)
+        domIndResult = runDomIndPlanner(fileName, domain)
         if not htnResult or htnResult.find(HTN_PLAN_FOUND) < 0:
             printWarn(
                 f"Failed to find HTN solution for plan {successCount} problem size {probSize}, retrying..."
             )
-        # elif not domIndResult:
-        #     printWarn(
-        #         f"Failed to find DI solution for plan {successCount} problem size {probSize}, retrying..."
-        #     )
+        elif not domIndResult:
+            printWarn(
+                f"Failed to find DI solution for plan {successCount} problem size {probSize}, retrying..."
+            )
         else:
             htnPlan = HtnPlanData(htnResult, probSize, successCount)
-            # domIndPlan = DomainIndPlanData(domIndResult, probSize, successCount)
-            if htnPlan.runTime == None:  # or domIndPlan.runTime == None:
+            domIndPlan = DomainIndPlanData(domIndResult, probSize, successCount)
+            if htnPlan.runTime == None or domIndPlan.runTime == None:
                 printWarn(
                     f"Failed parsing for plan {successCount} problem size {probSize}, retrying..."
                 )
@@ -288,13 +288,10 @@ def generatePlanData(
                 success = True
 
     q.put(htnPlan)
-    # q.put(domIndPlan)
+    q.put(domIndPlan)
 
-    # printInfo(
-    #     f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI)"
-    # )
     printInfo(
-        f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN)"
+        f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI)"
     )
 
 
