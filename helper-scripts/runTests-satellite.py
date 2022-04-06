@@ -13,7 +13,7 @@ from datetime import datetime
 PROJ_DIR = os.environ["PROJ_DIR"]
 BENCHMARKS_DIR = os.environ["BENCHMARKS_DIR"]
 HTN_PLAN_FOUND = "INFO: plan found"
-POOL_SIZE = 10
+POOL_SIZE = 20
 TIMEOUT = 10
 
 
@@ -147,12 +147,12 @@ def printError(msg: str) -> None:
     print(f"{datetime.utcnow().isoformat()} - INFO: {msg}")
 
 
-def generateProblemFile(numObs: int, successCount: int) -> str:
+def generateProblemFile(numTargets: int, successCount: int) -> str:
     randseed = getRandSeed()
-    numSats = 3
-    numMaxIntsPerSat = 2
-    numModes = 2
-    numTargets = 20
+    numSats = 10
+    numMaxIntsPerSat = 10
+    numModes = 5
+    numObs = 2
 
     subProcessArr = [
         "./satgen",
@@ -167,7 +167,7 @@ def generateProblemFile(numObs: int, successCount: int) -> str:
         str(numObs),
     ]
 
-    fileName = f"test.{numObs}.{successCount}.pddl"
+    fileName = f"test.{numTargets}.{successCount}.pddl"
 
     with open(fileName, "w") as f:
         RunCmd(
@@ -230,9 +230,6 @@ def generatePlanData(probSize: int, successCount: int, q: Queue) -> str:
 
     printInfo(
         f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI)"
-    )
-    printInfo(
-        f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN)"
     )
 
 
@@ -303,7 +300,7 @@ def writePlansToFile(plans: Queue) -> None:
 
 
 def main():
-    numObsArr = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70]
+    numObsArr = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
     numProbsPerSize = 15
     planData = generateData(numObsArr, numProbsPerSize)
     writePlansToFile(planData)
