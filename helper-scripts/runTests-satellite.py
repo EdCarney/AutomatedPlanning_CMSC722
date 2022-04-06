@@ -2,19 +2,20 @@
 
 import multiprocessing
 import os, re, time
+import statistics
 from threading import Thread
-from multiprocessing import Lock, Queue, Pool
+from multiprocessing import Queue, Pool
 from subprocess import Popen, PIPE
 from enum import Enum
-from typing import Tuple
 from astropy.time import Time
 from datetime import datetime
 
 PROJ_DIR = os.environ["PROJ_DIR"]
 BENCHMARKS_DIR = os.environ["BENCHMARKS_DIR"]
 HTN_PLAN_FOUND = "INFO: plan found"
+USE_MULTITHREADING = False
 POOL_SIZE = 20
-TIMEOUT = 10
+TIMEOUT = 30
 
 
 class RunCmd(Thread):
@@ -46,6 +47,8 @@ class RunCmd(Thread):
             self.join()
         elif self.stdoutOpt == PIPE:
             retVal = self.p.communicate()[0].decode()
+            if "error" in retVal:
+                retVal = False
 
         os.chdir(oldDir)
         return retVal
@@ -72,15 +75,24 @@ class PlanData:
         print(f"Num Steps: {self.numSteps}")
         print(f"Num Nodes Expanded: {self.numNodesExpanded}")
 
+    def tryParse(self, parseFunc) -> str:
+        try:
+            return parseFunc()
+        except:
+            printError(
+                f"Exception in func {parseFunc.__name__} parsing {self.type.value} Plan {self.problemSize}.{self.successCount} : {self.data}"
+            )
+
 
 class HtnPlanData(PlanData):
-    def __init__(self, data: str, probSize: int) -> None:
+    def __init__(self, data: str, probSize: int, successCount: int) -> None:
         self.data = data
         self.type = PlanType.HTN
         self.problemSize = probSize
-        self.runTime = self.__extractRunTime()
-        self.numSteps = self.__extractNumSteps()
-        self.numNodesExpanded = self.__extractNumNodesExpanded()
+        self.successCount = successCount
+        self.runTime = super().tryParse(self.__extractRunTime)
+        self.numSteps = super().tryParse(self.__extractNumSteps)
+        self.numNodesExpanded = super().tryParse(self.__extractNumNodesExpanded)
 
     def __extractRunTime(self) -> str:
         runTimeRegex = "FP> runtime = (\d+.\d+)"
@@ -107,13 +119,14 @@ class HtnPlanData(PlanData):
 
 
 class DomainIndPlanData(PlanData):
-    def __init__(self, data: str, probSize: int) -> None:
+    def __init__(self, data: str, probSize: int, successCount: int) -> None:
         self.data = data
         self.type = PlanType.DOM_IND
         self.problemSize = probSize
-        self.runTime = self.__extractRunTime()
-        self.numSteps = self.__extractNumSteps()
-        self.numNodesExpanded = self.__extractNumNodesExpanded()
+        self.successCount = successCount
+        self.runTime = super().tryParse(self.__extractRunTime)
+        self.numSteps = super().tryParse(self.__extractNumSteps)
+        self.numNodesExpanded = super().tryParse(self.__extractNumNodesExpanded)
 
     def __extractRunTime(self) -> str:
         runTimeRegex = "\s+(\d+.\d+) seconds total time"
@@ -144,7 +157,7 @@ def printInfo(msg: str) -> None:
 
 
 def printError(msg: str) -> None:
-    print(f"{datetime.utcnow().isoformat()} - INFO: {msg}")
+    print(f"{datetime.utcnow().isoformat()} - ERROR: {msg}")
 
 
 def generateProblemFile(numTargets: int, successCount: int) -> str:
@@ -189,7 +202,7 @@ def runHtnPlanner(fileName: str, probSize: int) -> str:
         BENCHMARKS_DIR + "/satellite/domain.pddl",
         BENCHMARKS_DIR + f"/satellite/{fileName}",
     ]
-    return RunCmd(subProcessArr, PROJ_DIR + "/gt-pyhop", TIMEOUT * probSize).Run()
+    return RunCmd(subProcessArr, PROJ_DIR + "/gt-pyhop", TIMEOUT).Run()
 
 
 def runDomIndPlanner(fileName: str, probSize: int) -> str:
@@ -222,8 +235,8 @@ def generatePlanData(probSize: int, successCount: int, q: Queue) -> str:
         else:
             success = True
 
-    htnPlan = HtnPlanData(htnResult, probSize)
-    domIndPlan = DomainIndPlanData(domIndResult, probSize)
+    htnPlan = HtnPlanData(htnResult, probSize, successCount)
+    domIndPlan = DomainIndPlanData(domIndResult, probSize, successCount)
 
     q.put(htnPlan)
     q.put(domIndPlan)
@@ -281,8 +294,12 @@ def generateData(probSizeArr: list[int], numProbsPerSize: int) -> Queue:
         for probNum in range(numProbsPerSize)
     ]
 
-    with Pool(POOL_SIZE) as p:
-        p.starmap(generatePlanData, probTuples)
+    if USE_MULTITHREADING:
+        with Pool(POOL_SIZE) as p:
+            p.starmap(generatePlanData, probTuples)
+    else:
+        for (probSize, probNum, planQ) in probTuples:
+            generatePlanData(probSize, probNum, planQ)
 
     return planQ
 
@@ -290,19 +307,73 @@ def generateData(probSizeArr: list[int], numProbsPerSize: int) -> Queue:
 def writePlansToFile(plans: Queue) -> None:
     timestamp = str(datetime.utcnow().timestamp()).replace(".", "")
     fileName = f"plan_data_{timestamp}.csv"
+
+    planDict: dict[str : dict[int:PlanData]] = {
+        PlanType.HTN.value: {},
+        PlanType.DOM_IND.value: {},
+    }
+
+    while not plans.empty():
+        plan = plans.get()
+        if plan.type == PlanType.HTN:
+            if plan.problemSize in planDict[PlanType.HTN.value]:
+                planDict[PlanType.HTN.value][plan.problemSize].append(plan)
+            else:
+                planDict[PlanType.HTN.value][plan.problemSize] = [plan]
+        else:
+            if plan.problemSize in planDict[PlanType.DOM_IND.value]:
+                planDict[PlanType.DOM_IND.value][plan.problemSize].append(plan)
+            else:
+                planDict[PlanType.DOM_IND.value][plan.problemSize] = [plan]
+
     with open(fileName, "w") as f:
-        f.write("Problem Size,Run Time (s),Num Steps,Expanded Nodes,Plan Type\n")
-        while not plans.empty():
-            plan = plans.get()
+        f.write(
+            "Problem Size,Run Time Avg (s),Run Time StdDev (s),Num Steps Avg,Num Steps StdDev,Expanded Nodes Avg,Expanded Nodes StdDev,Plan Type\n"
+        )
+
+        for key, planList in planDict[PlanType.HTN.value].items():
+            runTimeAvg = statistics.mean([float(plan.runTime) for plan in planList])
+            runTimeStdDev = statistics.stdev([float(plan.runTime) for plan in planList])
+            numStepsAvg = statistics.mean([float(plan.numSteps) for plan in planList])
+            numStepsStdDev = statistics.stdev(
+                [float(plan.numSteps) for plan in planList]
+            )
+            numNodesExpandedAvg = statistics.mean(
+                [float(plan.numNodesExpanded) for plan in planList]
+            )
+            numNodesExpandedStdDev = statistics.stdev(
+                [float(plan.numNodesExpanded) for plan in planList]
+            )
             f.write(
-                f"{plan.problemSize},{plan.runTime},{plan.numSteps},{plan.numNodesExpanded},{plan.type.value}\n"
+                f"{key},{runTimeAvg},{runTimeStdDev},{numStepsAvg},{numStepsStdDev},{numNodesExpandedAvg},{numNodesExpandedStdDev},{plan.type.value}\n"
             )
 
 
 def main():
-    numObsArr = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+    numTargetsArr = [
+        5,
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        40,
+        45,
+        50,
+        55,
+        60,
+        65,
+        70,
+        75,
+        80,
+        85,
+        90,
+        95,
+        100,
+    ]
     numProbsPerSize = 15
-    planData = generateData(numObsArr, numProbsPerSize)
+    planData = generateData(numTargetsArr, numProbsPerSize)
     writePlansToFile(planData)
 
 
