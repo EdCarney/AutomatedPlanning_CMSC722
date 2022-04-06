@@ -1,6 +1,8 @@
 #! /usr/bin/env python3.10
 
-import subprocess, os, re
+import os, re
+from threading import Thread
+from subprocess import run, Popen, PIPE
 from enum import Enum
 from typing import Tuple
 from astropy.time import Time
@@ -9,6 +11,41 @@ from datetime import datetime
 PROJ_DIR = os.environ["PROJ_DIR"]
 BENCHMARKS_DIR = os.environ["BENCHMARKS_DIR"]
 HTN_PLAN_FOUND = "INFO: plan found"
+TIMEOUT = 10
+
+
+class RunCmd(Thread):
+    cmdArr: list[str]
+    runDir: str
+    timeout: int
+
+    def __init__(self, cmdArr: list[str], runDir: str, timeout: int, stdoutOpt=PIPE):
+        Thread.__init__(self)
+        self.cmdArr = cmdArr
+        self.runDir = runDir
+        self.timeout = timeout
+        self.stdoutOpt = stdoutOpt
+
+    def run(self):
+        self.p = Popen(self.cmdArr, stdout=self.stdoutOpt)
+        self.p.wait()
+
+    def Run(self) -> str | bool:
+        retVal = False
+        oldDir = os.getcwd()
+
+        os.chdir(self.runDir)
+        self.start()
+        self.join(self.timeout)
+
+        if self.is_alive():
+            self.p.terminate()
+            self.join()
+        elif self.stdoutOpt == PIPE:
+            retVal = self.p.communicate()[0].decode()
+
+        os.chdir(oldDir)
+        return retVal
 
 
 class PlanType(Enum):
@@ -42,11 +79,11 @@ class HtnPlanData(PlanData):
         self.numSteps = self.__extractNumSteps()
         self.numNodesExpanded = self.__extractNumNodesExpanded()
 
-    def __extractRunTime(self):
+    def __extractRunTime(self) -> str:
         runTimeRegex = "FP> runtime = (\d+.\d+)"
         return re.findall(runTimeRegex, self.data, re.M)[-1]
 
-    def __extractNumSteps(self):
+    def __extractNumSteps(self) -> str:
         numStepsRegex = "FP> result = (\[\(.*\)\])"
         result = re.findall(numStepsRegex, self.data, re.M)[-1]
 
@@ -54,14 +91,14 @@ class HtnPlanData(PlanData):
         numLParens = result.count("(")
         numRParens = result.count(")")
         if numLParens == numRParens:
-            return numLParens
+            return str(numLParens)
         else:
             print(
                 "ERROR: Number of parenthesis did not match when determining HTN plan length!"
             )
             exit()
 
-    def __extractNumNodesExpanded(self):
+    def __extractNumNodesExpanded(self) -> str:
         numStepsExpandedRegex = "depth (\d+) todo_list"
         return re.findall(numStepsExpandedRegex, self.data, re.M)[-1]
 
@@ -75,17 +112,17 @@ class DomainIndPlanData(PlanData):
         self.numSteps = self.__extractNumSteps()
         self.numNodesExpanded = self.__extractNumNodesExpanded()
 
-    def __extractRunTime(self):
+    def __extractRunTime(self) -> str:
         runTimeRegex = "\s+(\d+.\d+) seconds total time"
         return re.findall(runTimeRegex, self.data, re.M)[-1]
 
-    def __extractNumSteps(self):
+    def __extractNumSteps(self) -> str:
         numStepsRegex = "\s+(\d+):\s"
         return re.findall(numStepsRegex, self.data, re.M)[-1]
 
-    def __extractNumNodesExpanded(self):
+    def __extractNumNodesExpanded(self) -> str:
         numStepsExpandedRegex = "evaluating (\d+) states"
-        return re.findall(numStepsExpandedRegex, self.data, re.M)[-1] + 1
+        return str(int(re.findall(numStepsExpandedRegex, self.data, re.M)[-1]) + 1)
 
 
 def getRandSeed() -> int:
@@ -95,16 +132,16 @@ def getRandSeed() -> int:
     return randseed
 
 
-def runCmdInDir(
-    subProcessArr: list[str], runDir: str, stdOpt=subprocess.PIPE
+def runCmd(
+    subProcessArr: list[str], runDir: str, stdOpt=PIPE, timeout: int = -1
 ) -> str | None:
     oldDir = os.getcwd()
     os.chdir(runDir)
-    ret = subprocess.run(subProcessArr, stdout=stdOpt)
+    ret = run(subProcessArr, stdout=stdOpt)
     os.chdir(oldDir)
 
     # we only have a value to return when using PIPE
-    if stdOpt == subprocess.PIPE:
+    if stdOpt == PIPE:
         return ret.stdout.decode()
 
 
@@ -131,7 +168,9 @@ def generateProblemFile(numObs: int, successCount: int) -> str:
     fileName = f"test.{numObs}.{successCount}.pddl"
 
     with open(fileName, "w") as f:
-        runCmdInDir(subProcessArr, PROJ_DIR + "/satellite-generator", stdOpt=f)
+        RunCmd(
+            subProcessArr, PROJ_DIR + "/satellite-generator", TIMEOUT, stdoutOpt=f
+        ).Run()
 
     os.replace(
         PROJ_DIR + f"/helper-scripts/{fileName}",
@@ -141,17 +180,17 @@ def generateProblemFile(numObs: int, successCount: int) -> str:
     return fileName
 
 
-def runHtnPlanner(fileName: str) -> str:
+def runHtnPlanner(fileName: str, probSize: int) -> str:
     subProcessArr = [
         "./Examples/problem_ingestor/problem_ingestor.py",
         "satellite",
         BENCHMARKS_DIR + "/satellite/domain.pddl",
         BENCHMARKS_DIR + f"/satellite/{fileName}",
     ]
-    return runCmdInDir(subProcessArr, PROJ_DIR + "/gt-pyhop")
+    return RunCmd(subProcessArr, PROJ_DIR + "/gt-pyhop", TIMEOUT * probSize).Run()
 
 
-def runDomIndPlanner(fileName: str) -> str:
+def runDomIndPlanner(fileName: str, probSize: int) -> str:
     subProcessArr = [
         "./ff",
         "-o",
@@ -160,48 +199,47 @@ def runDomIndPlanner(fileName: str) -> str:
         BENCHMARKS_DIR + f"/satellite/{fileName}",
     ]
 
-    return runCmdInDir(subProcessArr, PROJ_DIR + "/metric-ff")
+    return RunCmd(subProcessArr, PROJ_DIR + "/metric-ff", TIMEOUT * probSize).Run()
 
 
-def generatePlanData(
-    probSizeArr: list[int], numProbsPerSize: int
-) -> Tuple[list[HtnPlanData], list[DomainIndPlanData]]:
-    htnPlans: list[HtnPlanData] = []
-    domIndPlans: list[DomainIndPlanData] = []
+def generatePlanData(probSizeArr: list[int], numProbsPerSize: int) -> list[PlanData]:
+    plans: list[PlanData] = []
 
     for probSize in probSizeArr:
         successCount = 0
         while successCount < numProbsPerSize:
             fileName = generateProblemFile(probSize, successCount)
-            result = runHtnPlanner(fileName)
-            if result.find(HTN_PLAN_FOUND) < 0:
+            htnResult = runHtnPlanner(fileName, probSize)
+            domIndResult = runDomIndPlanner(fileName, probSize)
+            if not htnResult or not domIndResult or htnResult.find(HTN_PLAN_FOUND) < 0:
                 print(
                     f"WARN: Failed attempt {successCount + 1} for count {probSize}, retrying..."
                 )
             else:
-                htnPlan = HtnPlanData(result, probSize)
-                htnPlans.append(htnPlan)
+                plans.append(HtnPlanData(htnResult, probSize))
+                plans.append(DomainIndPlanData(domIndResult, probSize))
                 successCount += 1
+                print(f"Generated plan {successCount} for problem size {probSize}")
 
-    return htnPlans, domIndPlans
+    return plans
 
 
 def writePlansToFile(plans: list[PlanData]) -> None:
     timestamp = str(datetime.utcnow().timestamp()).replace(".", "")
     fileName = f"plan_data_{timestamp}.csv"
     with open(fileName, "w") as f:
-        f.write("Plan Type,Problem Size,Run Time (s),Num Steps,Expanded Nodes\n")
+        f.write("Problem Size,Run Time (s),Num Steps,Expanded Nodes,Plan Type\n")
         for plan in plans:
             f.write(
-                f"{plan.type.value},{plan.problemSize},{plan.runTime},{plan.numSteps},{plan.numNodesExpanded}\n"
+                f"{plan.problemSize},{plan.runTime},{plan.numSteps},{plan.numNodesExpanded},{plan.type.value}\n"
             )
 
 
 def main():
-    numObsArr = [5, 10, 15, 20, 25, 30]
+    numObsArr = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70]
     numProbsPerSize = 10
-    htnPlans, domIndPlans = generatePlanData(numObsArr, numProbsPerSize)
-    writePlansToFile(htnPlans)
+    planData = generatePlanData(numObsArr, numProbsPerSize)
+    writePlansToFile(planData)
 
 
 if __name__ == "__main__":

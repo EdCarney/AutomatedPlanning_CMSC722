@@ -1,6 +1,7 @@
 #! /usr/bin/env python3.10
 
 from enum import Enum
+from time import sleep
 import gtpyhop
 from pddlpy import DomainProblem
 from pddlpy.pddl import Atom
@@ -277,8 +278,8 @@ def main():
     result = runPlanner(problem)
     if result:
         print("INFO: plan found")
-    else:
-        print("INFO: plan not found")
+
+    sleep(5)
 
 
 if __name__ == "__main__":
