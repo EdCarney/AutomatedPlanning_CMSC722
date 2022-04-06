@@ -17,7 +17,7 @@ def generateObjects():
     return
 
 
-def getProbFiles(fileDir: str) -> list[str]:
+def getProbFiles(fileDir: str) -> list:
     probRe = re.compile("^test\.[0-9]*$")
     allFiles = [f for f in listdir(fileDir) if isfile(join(fileDir, f))]
     probFiles = [f for f in allFiles if re.match(probRe, f)]
@@ -25,7 +25,7 @@ def getProbFiles(fileDir: str) -> list[str]:
     return probFiles
 
 
-def generatePddlFiles(fileDir: str, probFiles: list[str]) -> None:
+def generatePddlFiles(fileDir: str, probFiles: list) -> None:
     for probFile in probFiles:
         print(f"INFO: Generating PDDL for {probFile}...")
         generatePddlFile(fileDir, probFile)
@@ -45,7 +45,7 @@ def generatePddlFile(fileDir: str, probFile: str) -> None:
         f.writelines(pddlLines)
 
 
-def fileFormatIsInvalid(lines: list[str]) -> bool:
+def fileFormatIsInvalid(lines: list) -> bool:
     blocksWorldRe = [
         re.compile("^\s([0-9]*)$"),
         re.compile("^(\s[0-9]*)+$"),
@@ -64,7 +64,7 @@ def fileFormatIsInvalid(lines: list[str]) -> bool:
     return False
 
 
-def translateToPddl(probFileName: str, lines: list[str]) -> list[str]:
+def translateToPddl(probFileName: str, lines: list) -> list:
     pddlLines = []
     pddlLines.append(FILE_START)
     pddlLines.append(generateProblemElement(probFileName))
@@ -90,13 +90,13 @@ def generateDomainElement() -> str:
     return "(:domain blocks)"
 
 
-def generateObjectsElement(lines: list[str]) -> str:
+def generateObjectsElement(lines: list) -> str:
     numBlocks = int(lines[0].strip())
     blocksText = " ".join([f"b{i+1}" for i in range(numBlocks)])
     return f"(:objects {blocksText})"
 
 
-def generateInitElement(lines: list[str]) -> list[str]:
+def generateInitElement(lines: list) -> list:
     initStr = lines[1].strip()
     initStates = initStr.split(" ")
     initLines = []
@@ -108,7 +108,7 @@ def generateInitElement(lines: list[str]) -> list[str]:
     return initLines
 
 
-def generateGoalElement(lines: list[str]) -> str:
+def generateGoalElement(lines: list) -> str:
     goalStr = lines[3].strip()
     goalStates = goalStr.split(" ")
     goalLines = []
@@ -120,7 +120,7 @@ def generateGoalElement(lines: list[str]) -> str:
     return goalLines
 
 
-def getStateElementLines(states: list[str]) -> list[str]:
+def getStateElementLines(states: list) -> list:
     states = [int(x) for x in states]
     stateElementLines = []
 
