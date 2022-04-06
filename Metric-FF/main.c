@@ -672,19 +672,19 @@ void output_planner_info(void)
 
 {
 
-  printf("\n\ntime spent: %7.2f seconds instantiating %d easy, %d hard action templates",
+  printf("\n\ntime spent: %7.4f seconds instantiating %d easy, %d hard action templates",
          gtempl_time, gnum_easy_templates, gnum_hard_mixed_operators);
-  printf("\n            %7.2f seconds reachability analysis, yielding %d facts and %d actions",
+  printf("\n            %7.4f seconds reachability analysis, yielding %d facts and %d actions",
          greach_time, gnum_pp_facts, gnum_actions);
-  printf("\n            %7.2f seconds creating final representation with %d relevant facts, %d relevant fluents",
+  printf("\n            %7.4f seconds creating final representation with %d relevant facts, %d relevant fluents",
          grelev_time, gnum_relevant_facts, gnum_relevant_fluents);
-  printf("\n            %7.2f seconds computing LNF",
+  printf("\n            %7.4f seconds computing LNF",
          gLNF_time);
-  printf("\n            %7.2f seconds building connectivity graph",
+  printf("\n            %7.4f seconds building connectivity graph",
          gconn_time);
-  printf("\n            %7.2f seconds searching, evaluating %d states, to a max depth of %d",
+  printf("\n            %7.4f seconds searching, evaluating %d states, to a max depth of %d",
          gsearch_time, gevaluated_states, gmax_search_depth);
-  printf("\n            %7.2f seconds total time",
+  printf("\n            %7.4f seconds total time",
          gtempl_time + greach_time + grelev_time + gLNF_time + gconn_time + gsearch_time);
 
   printf("\n\n");
