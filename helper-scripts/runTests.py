@@ -230,20 +230,22 @@ def generateBlocksProblemFile(numBlocks: int, successCount: int) -> str:
     )
 
     subProcessArr = ["./generate-prob-pddl.py", f"{BENCHMARKS_DIR}/blocks/{fileName}"]
-    RunCmd(subProcessArr, f"{PROJ_DIR}/bwstates-src", TIMEOUT).Run()
+    RunCmd(subProcessArr, f"{PROJ_DIR}/helper-scripts", TIMEOUT).Run()
 
     return f"{fileName}.pddl"
 
 
 def runHtnPlanner(fileName: str, domain: DomainType) -> str:
     subProcessArr = [
-        "./Examples/problem_ingestor/problem_ingestor.py",
+        "./problem_ingestor.py",
         domain.value,
         f"{BENCHMARKS_DIR}/{domain.value}/domain.pddl",
         f"{BENCHMARKS_DIR}/{domain.value}/{fileName}",
     ]
 
-    return RunCmd(subProcessArr, PROJ_DIR + "/gt-pyhop", TIMEOUT).Run()
+    return RunCmd(
+        subProcessArr, f"{PROJ_DIR}/helper-scripts/problem_ingestor", TIMEOUT
+    ).Run()
 
 
 def runDomIndPlanner(fileName: str, domain: DomainType) -> str:
@@ -266,18 +268,18 @@ def generatePlanData(
     while not success:
         fileName = generateProblemFile(probSize, domain, successCount)
         htnResult = runHtnPlanner(fileName, domain)
-        domIndResult = runDomIndPlanner(fileName)
+        # domIndResult = runDomIndPlanner(fileName, domain)
         if not htnResult or htnResult.find(HTN_PLAN_FOUND) < 0:
             printWarn(
                 f"Failed to find HTN solution for plan {successCount} problem size {probSize}, retrying..."
             )
-        elif not domIndResult:
-            printWarn(
-                f"Failed to find DI solution for plan {successCount} problem size {probSize}, retrying..."
-            )
+        # elif not domIndResult:
+        #     printWarn(
+        #         f"Failed to find DI solution for plan {successCount} problem size {probSize}, retrying..."
+        #     )
         else:
             htnPlan = HtnPlanData(htnResult, probSize, successCount)
-            domIndPlan = DomainIndPlanData(domIndResult, probSize, successCount)
+            # domIndPlan = DomainIndPlanData(domIndResult, probSize, successCount)
             if htnPlan.runTime == None:  # or domIndPlan.runTime == None:
                 printWarn(
                     f"Failed parsing for plan {successCount} problem size {probSize}, retrying..."
@@ -286,10 +288,13 @@ def generatePlanData(
                 success = True
 
     q.put(htnPlan)
-    q.put(domIndPlan)
+    # q.put(domIndPlan)
 
+    # printInfo(
+    #     f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI)"
+    # )
     printInfo(
-        f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI)"
+        f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN)"
     )
 
 
@@ -345,8 +350,8 @@ def generateData(probSizeArr: list[int], numProbsPerSize: int) -> Queue:
         with Pool(POOL_SIZE) as p:
             p.starmap(generatePlanData, probTuples)
     else:
-        for (probSize, probNum, planQ) in probTuples:
-            generatePlanData(probSize, probNum, DOMAIN, planQ)
+        for (probSize, probNum, domain, planQ) in probTuples:
+            generatePlanData(probSize, probNum, domain, planQ)
 
     return planQ
 
