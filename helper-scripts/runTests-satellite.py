@@ -93,8 +93,8 @@ class HtnPlanData(PlanData):
         if numLParens == numRParens:
             return str(numLParens)
         else:
-            print(
-                "ERROR: Number of parenthesis did not match when determining HTN plan length!"
+            printError(
+                "Number of parentheses did not match when determining HTN plan length!"
             )
             exit()
 
@@ -132,17 +132,16 @@ def getRandSeed() -> int:
     return randseed
 
 
-def runCmd(
-    subProcessArr: list[str], runDir: str, stdOpt=PIPE, timeout: int = -1
-) -> str | None:
-    oldDir = os.getcwd()
-    os.chdir(runDir)
-    ret = run(subProcessArr, stdout=stdOpt)
-    os.chdir(oldDir)
+def printWarn(msg: str) -> None:
+    print(f"{datetime.utcnow().isoformat()} - WARN: {msg}")
 
-    # we only have a value to return when using PIPE
-    if stdOpt == PIPE:
-        return ret.stdout.decode()
+
+def printInfo(msg: str) -> None:
+    print(f"{datetime.utcnow().isoformat()} - INFO: {msg}")
+
+
+def printError(msg: str) -> None:
+    print(f"{datetime.utcnow().isoformat()} - INFO: {msg}")
 
 
 def generateProblemFile(numObs: int, successCount: int) -> str:
@@ -211,15 +210,23 @@ def generatePlanData(probSizeArr: list[int], numProbsPerSize: int) -> list[PlanD
             fileName = generateProblemFile(probSize, successCount)
             htnResult = runHtnPlanner(fileName, probSize)
             domIndResult = runDomIndPlanner(fileName, probSize)
-            if not htnResult or not domIndResult or htnResult.find(HTN_PLAN_FOUND) < 0:
-                print(
-                    f"WARN: Failed attempt {successCount + 1} for count {probSize}, retrying..."
+            if not htnResult or htnResult.find(HTN_PLAN_FOUND) < 0:
+                printWarn(
+                    f"Failed to find HTN solution for plan {successCount + 1} problem size {probSize}, retrying..."
+                )
+            elif not domIndResult:
+                printWarn(
+                    f"Failed to find DI solution for plan {successCount + 1} problem size {probSize}, retrying..."
                 )
             else:
-                plans.append(HtnPlanData(htnResult, probSize))
-                plans.append(DomainIndPlanData(domIndResult, probSize))
+                htnPlan = HtnPlanData(htnResult, probSize)
+                domIndPlan = DomainIndPlanData(domIndResult, probSize)
+                plans.append(htnPlan)
+                plans.append(domIndPlan)
                 successCount += 1
-                print(f"Generated plan {successCount} for problem size {probSize}")
+                printInfo(
+                    f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI) "
+                )
 
     return plans
 
