@@ -10,7 +10,6 @@ ENV PROJ_DIR="/home/default"
 COPY ./metric-ff metric-ff
 COPY ./satellite-generator satellite-generator
 COPY ./bwstates-src bwstates-src
-COPY ./gt-pyhop gt-pyhop
 COPY ./benchmarks benchmarks
 COPY ./helper-scripts helper-scripts
 
