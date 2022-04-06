@@ -17,7 +17,7 @@ of the modules in the Examples directory.
 # from IPython import embed
 # from IPython.terminal.debugger import set_trace
 
-import copy, re, time
+import copy, re, time, sys
 
 ################################################################################
 # How much information to print while the program is running
@@ -840,6 +840,7 @@ def find_plan(state, todo_list):
         print(f"FP> find_plan, verbose={verbose}:")
         print(f"    state = {state.__name__}\n    todo_list = {todo_string}")
     start = time.time()
+    sys.setrecursionlimit(5000)
     result = seek_plan(state, todo_list, [], 0)
     end = time.time()
     if verbose >= 1:
