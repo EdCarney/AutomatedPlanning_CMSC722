@@ -279,8 +279,6 @@ def main():
     if result:
         print("INFO: plan found")
 
-    sleep(5)
-
 
 if __name__ == "__main__":
     main()

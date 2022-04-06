@@ -1,8 +1,10 @@
 #! /usr/bin/env python3.10
 
-import os, re
+import multiprocessing
+import os, re, time
 from threading import Thread
-from subprocess import run, Popen, PIPE
+from multiprocessing import Lock, Queue, Pool
+from subprocess import Popen, PIPE
 from enum import Enum
 from typing import Tuple
 from astropy.time import Time
@@ -11,6 +13,7 @@ from datetime import datetime
 PROJ_DIR = os.environ["PROJ_DIR"]
 BENCHMARKS_DIR = os.environ["BENCHMARKS_DIR"]
 HTN_PLAN_FOUND = "INFO: plan found"
+POOL_SIZE = 10
 TIMEOUT = 10
 
 
@@ -201,42 +204,99 @@ def runDomIndPlanner(fileName: str, probSize: int) -> str:
     return RunCmd(subProcessArr, PROJ_DIR + "/metric-ff", TIMEOUT * probSize).Run()
 
 
-def generatePlanData(probSizeArr: list[int], numProbsPerSize: int) -> list[PlanData]:
-    plans: list[PlanData] = []
+def generatePlanData(probSize: int, successCount: int, q: Queue) -> str:
+    success = False
 
-    for probSize in probSizeArr:
-        successCount = 0
-        while successCount < numProbsPerSize:
-            fileName = generateProblemFile(probSize, successCount)
-            htnResult = runHtnPlanner(fileName, probSize)
-            domIndResult = runDomIndPlanner(fileName, probSize)
-            if not htnResult or htnResult.find(HTN_PLAN_FOUND) < 0:
-                printWarn(
-                    f"Failed to find HTN solution for plan {successCount + 1} problem size {probSize}, retrying..."
-                )
-            elif not domIndResult:
-                printWarn(
-                    f"Failed to find DI solution for plan {successCount + 1} problem size {probSize}, retrying..."
-                )
-            else:
-                htnPlan = HtnPlanData(htnResult, probSize)
-                domIndPlan = DomainIndPlanData(domIndResult, probSize)
-                plans.append(htnPlan)
-                plans.append(domIndPlan)
-                successCount += 1
-                printInfo(
-                    f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI) "
-                )
+    while not success:
+        fileName = generateProblemFile(probSize, successCount)
+        htnResult = runHtnPlanner(fileName, probSize)
+        domIndResult = runDomIndPlanner(fileName, probSize)
+        if not htnResult or htnResult.find(HTN_PLAN_FOUND) < 0:
+            printWarn(
+                f"Failed to find HTN solution for plan {successCount + 1} problem size {probSize}, retrying..."
+            )
+        elif not domIndResult:
+            printWarn(
+                f"Failed to find DI solution for plan {successCount + 1} problem size {probSize}, retrying..."
+            )
+        else:
+            success = True
 
-    return plans
+    htnPlan = HtnPlanData(htnResult, probSize)
+    domIndPlan = DomainIndPlanData(domIndResult, probSize)
+
+    q.put(htnPlan)
+    q.put(domIndPlan)
+
+    printInfo(
+        f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN) and {domIndPlan.runTime} s (DI)"
+    )
+    printInfo(
+        f"Generated plan {successCount} for problem size {probSize} in {htnPlan.runTime} s (HTN)"
+    )
 
 
-def writePlansToFile(plans: list[PlanData]) -> None:
+def calcOptimalPoolSize(probSizeArr: list[int], numProbsPerSize: int):
+    manager = multiprocessing.Manager()
+    planQ: Queue = manager.Queue()
+    probTuples = [
+        (probSize, probNum, planQ)
+        for probSize in probSizeArr
+        for probNum in range(numProbsPerSize)
+    ]
+
+    poolSizes = [5, 10, 15, 20, 25, 30, 35, 40, 45]
+    timesToTest = 5
+    multiTimes = []
+
+    for size in poolSizes:
+        runningAvg = 0
+        for i in range(timesToTest):
+            multiStart = time.time()
+            with Pool(size) as p:
+                p.starmap(generatePlanData, probTuples)
+            multiEnd = time.time()
+            runningAvg += multiEnd - multiStart
+
+        multiTimes.append((size, runningAvg / timesToTest))
+
+    runningAvg = 0
+    for i in range(timesToTest):
+        seqStart = time.time()
+        for prob in probTuples:
+            generatePlanData(prob[0], prob[1], prob[2])
+        seqEnd = time.time()
+        runningAvg += seqEnd - seqStart
+    seqRunTime = runningAvg / timesToTest
+
+    for multiTime in multiTimes:
+        percentImpStr = "{:.3f}".format(
+            ((seqRunTime - multiTime[1]) / seqRunTime) * 100
+        )
+        print(f"Pool size {multiTime[0]}: {percentImpStr} % improvement")
+
+
+def generateData(probSizeArr: list[int], numProbsPerSize: int) -> Queue:
+    planQ: Queue[PlanData] = multiprocessing.Manager().Queue()
+    probTuples = [
+        (probSize, probNum, planQ)
+        for probSize in probSizeArr
+        for probNum in range(numProbsPerSize)
+    ]
+
+    with Pool(POOL_SIZE) as p:
+        p.starmap(generatePlanData, probTuples)
+
+    return planQ
+
+
+def writePlansToFile(plans: Queue) -> None:
     timestamp = str(datetime.utcnow().timestamp()).replace(".", "")
     fileName = f"plan_data_{timestamp}.csv"
     with open(fileName, "w") as f:
         f.write("Problem Size,Run Time (s),Num Steps,Expanded Nodes,Plan Type\n")
-        for plan in plans:
+        while not plans.empty():
+            plan = plans.get()
             f.write(
                 f"{plan.problemSize},{plan.runTime},{plan.numSteps},{plan.numNodesExpanded},{plan.type.value}\n"
             )
@@ -244,8 +304,8 @@ def writePlansToFile(plans: list[PlanData]) -> None:
 
 def main():
     numObsArr = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70]
-    numProbsPerSize = 10
-    planData = generatePlanData(numObsArr, numProbsPerSize)
+    numProbsPerSize = 15
+    planData = generateData(numObsArr, numProbsPerSize)
     writePlansToFile(planData)
 
 
