@@ -2,6 +2,7 @@
 
 import multiprocessing
 import os, re, time
+import sys
 import statistics
 from threading import Thread
 from multiprocessing import Queue, Pool
@@ -13,9 +14,12 @@ from datetime import datetime
 PROJ_DIR = os.environ["PROJ_DIR"]
 BENCHMARKS_DIR = os.environ["BENCHMARKS_DIR"]
 HTN_PLAN_FOUND = "INFO: plan found"
-USE_MULTITHREADING = False
+USE_MULTITHREADING = True
 POOL_SIZE = 20
 TIMEOUT = 30
+VERBOSITY = 0
+
+global DOMAIN
 
 
 class RunCmd(Thread):
@@ -54,6 +58,11 @@ class RunCmd(Thread):
         return retVal
 
 
+class DomainType(Enum):
+    SATELLITE = "satellite"
+    BLOCKS = "blocks"
+
+
 class PlanType(Enum):
     HTN = "htn"
     DOM_IND = "domain_independent"
@@ -79,9 +88,11 @@ class PlanData:
         try:
             return parseFunc()
         except:
-            printError(
-                f"Exception in func {parseFunc.__name__} parsing {self.type.value} Plan {self.problemSize}.{self.successCount} : {self.data}"
-            )
+            if VERBOSITY > 0:
+                printError(
+                    f"Exception in func {parseFunc.__name__} parsing {self.type.value} Plan {self.problemSize}.{self.successCount} : {self.data}"
+                )
+            return None
 
 
 class HtnPlanData(PlanData):
@@ -160,12 +171,22 @@ def printError(msg: str) -> None:
     print(f"{datetime.utcnow().isoformat()} - ERROR: {msg}")
 
 
-def generateProblemFile(numTargets: int, successCount: int) -> str:
+def generateProblemFile(probSize: int, domain: DomainType, successCount: int) -> str:
+    if domain == DomainType.SATELLITE:
+        return generateSatelliteProblemFile(probSize, successCount)
+    elif domain == DomainType.BLOCKS:
+        return generateBlocksProblemFile(probSize, successCount)
+    else:
+        printError("Unknown domain")
+        exit()
+
+
+def generateSatelliteProblemFile(numTargets: int, successCount: int) -> str:
     randseed = getRandSeed()
     numSats = 10
-    numMaxIntsPerSat = 10
+    numMaxIntsPerSat = 5
     numModes = 5
-    numObs = 2
+    numObs = 5
 
     subProcessArr = [
         "./satgen",
@@ -184,59 +205,85 @@ def generateProblemFile(numTargets: int, successCount: int) -> str:
 
     with open(fileName, "w") as f:
         RunCmd(
-            subProcessArr, PROJ_DIR + "/satellite-generator", TIMEOUT, stdoutOpt=f
+            subProcessArr, f"{PROJ_DIR}/satellite-generator", TIMEOUT, stdoutOpt=f
         ).Run()
 
     os.replace(
-        PROJ_DIR + f"/helper-scripts/{fileName}",
-        BENCHMARKS_DIR + f"/satellite/{fileName}",
+        f"{PROJ_DIR}/helper-scripts/{fileName}",
+        f"{BENCHMARKS_DIR}/satellite/{fileName}",
     )
 
     return fileName
 
 
-def runHtnPlanner(fileName: str, probSize: int) -> str:
+def generateBlocksProblemFile(numBlocks: int, successCount: int) -> str:
+    randseed = getRandSeed()
+
+    fileName = f"test.{numBlocks}.{successCount}"
+    subProcessArr = ["./bwstates", "-r", str(randseed), "-n", str(numBlocks)]
+    with open(fileName, "w") as f:
+        RunCmd(subProcessArr, f"{PROJ_DIR}/bwstates-src", TIMEOUT, stdoutOpt=f).Run()
+
+    os.replace(
+        f"{PROJ_DIR}/helper-scripts/{fileName}",
+        f"{BENCHMARKS_DIR}/blocks/{fileName}",
+    )
+
+    subProcessArr = ["./generate-prob-pddl.py", f"{BENCHMARKS_DIR}/blocks/{fileName}"]
+    RunCmd(subProcessArr, f"{PROJ_DIR}/bwstates-src", TIMEOUT).Run()
+
+    return f"{fileName}.pddl"
+
+
+def runHtnPlanner(fileName: str, domain: DomainType) -> str:
     subProcessArr = [
         "./Examples/problem_ingestor/problem_ingestor.py",
-        "satellite",
-        BENCHMARKS_DIR + "/satellite/domain.pddl",
-        BENCHMARKS_DIR + f"/satellite/{fileName}",
+        domain.value,
+        f"{BENCHMARKS_DIR}/{domain.value}/domain.pddl",
+        f"{BENCHMARKS_DIR}/{domain.value}/{fileName}",
     ]
+
     return RunCmd(subProcessArr, PROJ_DIR + "/gt-pyhop", TIMEOUT).Run()
 
 
-def runDomIndPlanner(fileName: str, probSize: int) -> str:
+def runDomIndPlanner(fileName: str, domain: DomainType) -> str:
     subProcessArr = [
         "./ff",
         "-o",
-        BENCHMARKS_DIR + "/satellite/domain.pddl",
+        f"{BENCHMARKS_DIR}/{domain.value}/domain.pddl",
         "-f",
-        BENCHMARKS_DIR + f"/satellite/{fileName}",
+        f"{BENCHMARKS_DIR}/{domain.value}/{fileName}",
     ]
 
-    return RunCmd(subProcessArr, PROJ_DIR + "/metric-ff", TIMEOUT * probSize).Run()
+    return RunCmd(subProcessArr, f"{PROJ_DIR}/metric-ff", TIMEOUT).Run()
 
 
-def generatePlanData(probSize: int, successCount: int, q: Queue) -> str:
+def generatePlanData(
+    probSize: int, successCount: int, domain: DomainType, q: Queue
+) -> str:
     success = False
 
     while not success:
-        fileName = generateProblemFile(probSize, successCount)
-        htnResult = runHtnPlanner(fileName, probSize)
-        domIndResult = runDomIndPlanner(fileName, probSize)
+        fileName = generateProblemFile(probSize, domain, successCount)
+        htnResult = runHtnPlanner(fileName, domain)
+        domIndResult = runDomIndPlanner(fileName)
         if not htnResult or htnResult.find(HTN_PLAN_FOUND) < 0:
             printWarn(
-                f"Failed to find HTN solution for plan {successCount + 1} problem size {probSize}, retrying..."
+                f"Failed to find HTN solution for plan {successCount} problem size {probSize}, retrying..."
             )
         elif not domIndResult:
             printWarn(
-                f"Failed to find DI solution for plan {successCount + 1} problem size {probSize}, retrying..."
+                f"Failed to find DI solution for plan {successCount} problem size {probSize}, retrying..."
             )
         else:
-            success = True
-
-    htnPlan = HtnPlanData(htnResult, probSize, successCount)
-    domIndPlan = DomainIndPlanData(domIndResult, probSize, successCount)
+            htnPlan = HtnPlanData(htnResult, probSize, successCount)
+            domIndPlan = DomainIndPlanData(domIndResult, probSize, successCount)
+            if htnPlan.runTime == None:  # or domIndPlan.runTime == None:
+                printWarn(
+                    f"Failed parsing for plan {successCount} problem size {probSize}, retrying..."
+                )
+            else:
+                success = True
 
     q.put(htnPlan)
     q.put(domIndPlan)
@@ -289,7 +336,7 @@ def calcOptimalPoolSize(probSizeArr: list[int], numProbsPerSize: int):
 def generateData(probSizeArr: list[int], numProbsPerSize: int) -> Queue:
     planQ: Queue[PlanData] = multiprocessing.Manager().Queue()
     probTuples = [
-        (probSize, probNum, planQ)
+        (probSize, probNum, DOMAIN, planQ)
         for probSize in probSizeArr
         for probNum in range(numProbsPerSize)
     ]
@@ -299,14 +346,15 @@ def generateData(probSizeArr: list[int], numProbsPerSize: int) -> Queue:
             p.starmap(generatePlanData, probTuples)
     else:
         for (probSize, probNum, planQ) in probTuples:
-            generatePlanData(probSize, probNum, planQ)
+            generatePlanData(probSize, probNum, DOMAIN, planQ)
 
     return planQ
 
 
 def writePlansToFile(plans: Queue) -> None:
     timestamp = str(datetime.utcnow().timestamp()).replace(".", "")
-    fileName = f"plan_data_{timestamp}.csv"
+    metricFileName = f"{DOMAIN.value}_metrics_{timestamp}.csv"
+    planFileName = f"{DOMAIN.value}_plan_data_{timestamp}.csv"
 
     planDict: dict[str : dict[int:PlanData]] = {
         PlanType.HTN.value: {},
@@ -315,38 +363,47 @@ def writePlansToFile(plans: Queue) -> None:
 
     while not plans.empty():
         plan = plans.get()
-        if plan.type == PlanType.HTN:
-            if plan.problemSize in planDict[PlanType.HTN.value]:
-                planDict[PlanType.HTN.value][plan.problemSize].append(plan)
-            else:
-                planDict[PlanType.HTN.value][plan.problemSize] = [plan]
+        if plan.problemSize in planDict[plan.type.value].keys():
+            planDict[plan.type.value][plan.problemSize].append(plan)
         else:
-            if plan.problemSize in planDict[PlanType.DOM_IND.value]:
-                planDict[PlanType.DOM_IND.value][plan.problemSize].append(plan)
-            else:
-                planDict[PlanType.DOM_IND.value][plan.problemSize] = [plan]
+            planDict[plan.type.value][plan.problemSize] = [plan]
 
-    with open(fileName, "w") as f:
+    with open(metricFileName, "w") as f:
         f.write(
             "Problem Size,Run Time Avg (s),Run Time StdDev (s),Num Steps Avg,Num Steps StdDev,Expanded Nodes Avg,Expanded Nodes StdDev,Plan Type\n"
         )
 
-        for key, planList in planDict[PlanType.HTN.value].items():
-            runTimeAvg = statistics.mean([float(plan.runTime) for plan in planList])
-            runTimeStdDev = statistics.stdev([float(plan.runTime) for plan in planList])
-            numStepsAvg = statistics.mean([float(plan.numSteps) for plan in planList])
-            numStepsStdDev = statistics.stdev(
-                [float(plan.numSteps) for plan in planList]
-            )
-            numNodesExpandedAvg = statistics.mean(
-                [float(plan.numNodesExpanded) for plan in planList]
-            )
-            numNodesExpandedStdDev = statistics.stdev(
-                [float(plan.numNodesExpanded) for plan in planList]
-            )
-            f.write(
-                f"{key},{runTimeAvg},{runTimeStdDev},{numStepsAvg},{numStepsStdDev},{numNodesExpandedAvg},{numNodesExpandedStdDev},{plan.type.value}\n"
-            )
+        for plannerType, plannerPlanDict in planDict.items():
+            for probSize, planList in plannerPlanDict.items():
+                runTimeAvg = statistics.mean([float(plan.runTime) for plan in planList])
+                runTimeStdDev = statistics.stdev(
+                    [float(plan.runTime) for plan in planList]
+                )
+                numStepsAvg = statistics.mean(
+                    [float(plan.numSteps) for plan in planList]
+                )
+                numStepsStdDev = statistics.stdev(
+                    [float(plan.numSteps) for plan in planList]
+                )
+                numNodesExpandedAvg = statistics.mean(
+                    [float(plan.numNodesExpanded) for plan in planList]
+                )
+                numNodesExpandedStdDev = statistics.stdev(
+                    [float(plan.numNodesExpanded) for plan in planList]
+                )
+                f.write(
+                    f"{probSize},{runTimeAvg},{runTimeStdDev},{numStepsAvg},{numStepsStdDev},{numNodesExpandedAvg},{numNodesExpandedStdDev},{plannerType}\n"
+                )
+
+    with open(planFileName, "w") as f:
+        f.write("Problem Size,Run Time (s),Num Steps,Expanded Nodes,Plan Type\n")
+
+        for plannerType, plannerPlanDict in planDict.items():
+            for probSize, planList in plannerPlanDict.items():
+                for plan in planList:
+                    f.write(
+                        f"{plan.problemSize},{plan.runTime},{plan.numSteps},{plan.numNodesExpanded},{plan.type.value}\n"
+                    )
 
 
 def main():
@@ -369,13 +426,40 @@ def main():
         80,
         85,
         90,
-        95,
-        100,
+    ]
+    numBlocksArr = [
+        5,
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        40,
+        45,
+        50,
+        55,
+        60,
+        65,
+        70,
+        75,
+        80,
+        85,
     ]
     numProbsPerSize = 15
-    planData = generateData(numTargetsArr, numProbsPerSize)
+
+    if DOMAIN == DomainType.SATELLITE:
+        probSizeArr = numTargetsArr
+    elif DOMAIN == DomainType.BLOCKS:
+        probSizeArr = numBlocksArr
+
+    planData = generateData(probSizeArr, numProbsPerSize)
     writePlansToFile(planData)
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) != 2 or sys.argv[1].upper() not in ("SATELLITE", "BLOCKS"):
+        printError("Please specify domain when calling script (SATELLITE or BLOCKS)")
+    else:
+        DOMAIN = DomainType(sys.argv[1].lower())
+        main()
