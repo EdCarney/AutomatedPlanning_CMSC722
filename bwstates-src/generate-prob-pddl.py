@@ -1,7 +1,8 @@
 #! /usr/bin/env python3
 
 from os import listdir
-from os.path import isfile, join
+from os.path import exists, isdir, isfile, basename, join
+from posixpath import dirname
 import sys
 import re
 
@@ -127,7 +128,7 @@ def getStateElementLines(states: list[str]) -> list[str]:
         blockNum = i + 1
         onBlock = states[i]
 
-        if onBlock is 0:
+        if onBlock == 0:
             stateElementLines.append(f"(ontable b{blockNum})")
         else:
             stateElementLines.append(f"(on b{blockNum} b{onBlock})")
@@ -142,12 +143,15 @@ def getStateElementLines(states: list[str]) -> list[str]:
 
 def main():
     if len(sys.argv) != 2:
-        print("ERROR: Script requires exactly one argument for the directory")
+        print("ERROR: Script requires exactly one argument for the directory or file")
         return
 
-    fileDir = sys.argv[1]
-    files = getProbFiles(fileDir)
-    generatePddlFiles(fileDir, files)
+    fileOrDir = sys.argv[1]
+    if exists(fileOrDir) and isfile(fileOrDir):
+        generatePddlFiles(dirname(fileOrDir), [basename(fileOrDir)])
+    elif exists(fileOrDir) and isdir(fileOrDir):
+        files = getProbFiles(fileOrDir)
+        generatePddlFiles(fileOrDir, files)
 
 
 if __name__ == "__main__":
