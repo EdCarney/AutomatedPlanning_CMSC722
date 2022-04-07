@@ -409,45 +409,8 @@ def writePlansToFile(plans: Queue) -> None:
 
 
 def main():
-    numTargetsArr = [
-        5,
-        10,
-        15,
-        20,
-        25,
-        30,
-        35,
-        40,
-        45,
-        50,
-        55,
-        60,
-        65,
-        70,
-        75,
-        80,
-        85,
-        90,
-    ]
-    numBlocksArr = [
-        5,
-        10,
-        15,
-        20,
-        25,
-        30,
-        35,
-        40,
-        45,
-        50,
-        55,
-        60,
-        65,
-        70,
-        75,
-        80,
-        85,
-    ]
+    numTargetsArr = [x for x in range(5, 95, 5)]
+    numBlocksArr = [x for x in range(4, 26, 2)]
     numProbsPerSize = 15
 
     if DOMAIN == DomainType.SATELLITE:

@@ -45,6 +45,7 @@
  *********************************************************************/
 
 #include <string.h>
+#include <sys/time.h>
 
 #include "ff.h"
 #include "memory.h"
@@ -70,6 +71,8 @@
  */
 float gtempl_time = 0, greach_time = 0, grelev_time = 0, gconn_time = 0;
 float gLNF_time = 0, gsearch_time = 0;
+
+struct timeval totTimeStart, totTimeStop;
 
 /* the command line inputs
  */
@@ -556,6 +559,8 @@ int main(int argc, char *argv[])
   build_easy_action_templates();
   build_hard_action_templates();
 
+  gettimeofday(&totTimeStart, 0);
+
   times(&end);
   TIME(gtempl_time);
 
@@ -652,6 +657,8 @@ int main(int argc, char *argv[])
   times(&end);
   TIME(gsearch_time);
 
+  gettimeofday(&totTimeStop, 0);
+
   if (found_plan)
   {
     print_plan();
@@ -684,8 +691,15 @@ void output_planner_info(void)
          gconn_time);
   printf("\n            %7.4f seconds searching, evaluating %d states, to a max depth of %d",
          gsearch_time, gevaluated_states, gmax_search_depth);
+
+  float totTime = gtempl_time + greach_time + grelev_time + gLNF_time + gconn_time + gsearch_time;
+  if (totTime < 1)
+  {
+    totTime = (float)(totTimeStop.tv_usec - totTimeStart.tv_usec) / 1000000.0;
+  }
+
   printf("\n            %7.4f seconds total time",
-         gtempl_time + greach_time + grelev_time + gLNF_time + gconn_time + gsearch_time);
+         totTime);
 
   printf("\n\n");
 
