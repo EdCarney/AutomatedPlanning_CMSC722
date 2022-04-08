@@ -20,6 +20,7 @@ This repo is composed of several source directories, a directory for generated P
             |-problem_ingestor.py: script for translating PDDL files to HTN problem definitions
         |-generate-prop-pddl.py: script for translating blocks problems to PDDL definitions
         |-runTests.py: main driver script for data generation; calls other scripts
+    data-for-paper: contains data generated for final report
 
 # Building and Running Docker Image
 
